@@ -43,8 +43,8 @@ def identify_ground_region(image, cluster_labels):
         # Combined score (weighted)
         total_score = (
             0.1 * position_score +
-            0.2 * variance_score +
-            0.2 * brightness_score +
+            0.8 * variance_score +
+            0.4 * brightness_score +
             0.1 * bottom_edge_score
         )
         

@@ -6,9 +6,6 @@ from collections import deque
 from k_means import prepare_features, apply_kmeans_clustering
 from k_means_with_boundary import find_boundary_line, identify_ground_region
 
-
-frame_buffer = deque(maxlen=2)  # adjust length depending on desired sensitivity
-
 class KMeansFrameDiffPipeline:
 
     def getFrameDiff(self, prev_frame: np.ndarray, curr_frame: np.ndarray): 
@@ -91,18 +88,6 @@ class KMeansFrameDiffPipeline:
                 continue  # skip processing on first frame because no previous frame to diff
             
             diff_mask = self.getFrameDiff(prev_n_frames.popleft(), curr_frame)
-
-            # # Take the median of the last 5 frames. Suppress anything that doesn't change.
-            # # on each frame
-            # frame_buffer.append(diff_mask)
-
-            # if len(frame_buffer) == frame_buffer.maxlen:
-            #     stacked = np.stack(frame_buffer, axis=0)  # shape: [N, H, W]
-            #     temporal_median = np.median(stacked, axis=0).astype(np.uint8)
-            #     temporal_mask = (temporal_median > 128).astype(np.uint8) * 255
-            #     # Invert temporal mask: 255 becomes 0, 0 becomes 255
-            #     inverted_mask = cv2.bitwise_not(temporal_mask)
-            #     diff_mask = cv2.bitwise_and(diff_mask, diff_mask, mask=temporal_mask)
             
             sky_mask = self.getSkySegmentationMask(curr_frame)
 

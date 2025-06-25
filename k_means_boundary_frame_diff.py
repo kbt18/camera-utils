@@ -1,13 +1,13 @@
 import cv2
 import numpy as np
 
+from skimage import morphology
 from collections import deque
 
 from k_means import prepare_features, apply_kmeans_clustering
 from k_means_with_boundary import find_boundary_line, identify_ground_region
 
 class KMeansFrameDiffPipeline:
-
     def getFrameDiff(self, prev_frame: np.ndarray, curr_frame: np.ndarray): 
         curr_gray = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
         prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
@@ -36,24 +36,36 @@ class KMeansFrameDiffPipeline:
         diff = cv2.absdiff(prev_warped, curr_gray)
         _, diff_thresh = cv2.threshold(diff, 8, 255, cv2.THRESH_BINARY)
 
-        return diff_thresh
+        kernel_size = 5
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+        # First close gaps
+        result = cv2.morphologyEx(diff_thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
+        # Then clean up with opening
+        # small_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size//2, kernel_size//2))
+        # result = cv2.morphologyEx(result, cv2.MORPH_OPEN, small_kernel, iterations=1)
+        
+        # Remove small objects
+        # Assuming 'binary_img' is your binary image
+        kernel = np.ones((2,2), np.uint8)
+        result = cv2.morphologyEx(result, cv2.MORPH_OPEN, kernel)
+
+        return result
     
     def getSkySegmentationMask(self, frame, offset=10):
         original_height, original_width = frame.shape[:2]
         
         # Resize while maintaining aspect ratio
-        target_width = 200
+        target_width = 100
         aspect_ratio = original_height / original_width
         resized_height = int(target_width * aspect_ratio)
         resized_frame = cv2.resize(frame, (target_width, resized_height), interpolation=cv2.INTER_AREA)
         
-
         gray = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2GRAY)
 
         features = prepare_features(gray)
     
         # Apply K-means clustering with k=2
-        print("Applying K-means clustering (k=2)...")
+        # print("Applying K-means clustering (k=2)...")
         cluster_labels, kmeans_model, scaler = apply_kmeans_clustering(features, n_clusters=2)
         
         # Reshape to image dimensions
@@ -71,24 +83,35 @@ class KMeansFrameDiffPipeline:
         # Resize mask back to original frame size
         full_res_mask = cv2.resize(initial_sky_mask, (original_width, original_height), interpolation=cv2.INTER_NEAREST)
 
+        # Create a circular kernel of the desired diameter
+        kernel_size = 2 * 40 + 1
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+
+        # Apply erosion
+        full_res_mask = cv2.erode(full_res_mask, kernel, iterations=1)
+
 
         # Convert to binary OpenCV-style mask
         return full_res_mask
-
+    
     def run(self, video_path):
+        q_len = 3
         cap = cv2.VideoCapture(video_path)
-        prev_n_frames = deque(maxlen=3)
+        prev_n_frames = deque(maxlen=q_len)
         while True:
             ret, curr_frame = cap.read()
             if not ret:
                 break
 
-            if len(prev_n_frames) != 3:
+            if len(prev_n_frames) != q_len:
                 prev_n_frames.append(curr_frame)
                 continue  # skip processing on first frame because no previous frame to diff
+
+            if len(prev_n_frames) == q_len:
+                avg_frame = np.mean(np.stack(prev_n_frames, axis=0), axis=0).astype(np.uint8)
             
-            diff_mask = self.getFrameDiff(prev_n_frames.popleft(), curr_frame)
-            
+            diff_mask = self.getFrameDiff(prev_n_frames[2], curr_frame)
+
             sky_mask = self.getSkySegmentationMask(curr_frame)
 
             # Apply sky mask to diff mask
